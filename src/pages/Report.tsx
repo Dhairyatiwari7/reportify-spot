@@ -38,7 +38,12 @@ const formSchema = z.object({
 });
 
 // GitHub repository configuration
-
+const GITHUB_CONFIG = {
+  USERNAME: "Dhairyatiwari7",
+  REPO_NAME: "images",
+  BRANCH: "master",
+  TOKEN: "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", 
+};
 const GITHUB_CONFIG = {
   USERNAME: "Dhairyatiwari7",
   REPO_NAME: "images",
