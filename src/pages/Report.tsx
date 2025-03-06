@@ -44,12 +44,7 @@ const GITHUB_CONFIG = {
   BRANCH: "master",
   TOKEN: "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", 
 };
-const GITHUB_CONFIG = {
-  USERNAME: "Dhairyatiwari7",
-  REPO_NAME: "images",
-  BRANCH: "master",
-  TOKEN: process.env.GITHUB_TOKEN, // Load from environment variable
-};
+
 
 
 const ReportPage = () => {
