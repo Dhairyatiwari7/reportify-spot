@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
@@ -16,29 +15,17 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { toast } from "sonner";
 import { Camera, Upload, Loader2, MapPin } from "lucide-react";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import MapComponent from "@/components/MapComponent";
 import { Card, CardContent } from "@/components/ui/card";
-import { HazardType } from "@/types/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { createHazardReport } from "@/services/hazardService";
-import { supabase } from "@/lib/supabase";
 import { v4 as uuidv4 } from "uuid";
 
 const formSchema = z.object({
-  type: z.enum(["pothole", "waterlogging", "other"], {
-    required_error: "Please select a hazard type",
-  }),
   description: z
     .string()
     .min(10, { message: "Description must be at least 10 characters" })
@@ -47,31 +34,188 @@ const formSchema = z.object({
   latitude: z.number().optional(),
   longitude: z.number().optional(),
   image: z.instanceof(File).optional(),
+  hazardType: z.string().optional(),
 });
+
+// GitHub repository configuration
+const GITHUB_CONFIG = {
+  USERNAME: "Dhairyatiwari7",
+  REPO_NAME: "images",
+  BRANCH: "master",
+  TOKEN: "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", // Note: In production, use environment variables
+};
 
 const ReportPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [hazardType, setHazardType] = useState<string | null>(null);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      type: undefined,
       description: "",
       address: "",
+      hazardType: "",
     },
   });
 
   useEffect(() => {
-    // Redirect to login if not authenticated
     if (!user) {
       toast.error("Please log in to report a hazard");
       navigate("/login");
     }
   }, [user, navigate]);
 
+  // Fetch user's live location on component mount
+  useEffect(() => {
+    if (navigator.geolocation) {
+      setIsFetchingLocation(true);
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          setUserLocation({ lat: latitude, lng: longitude });
+          form.setValue("latitude", latitude);
+          form.setValue("longitude", longitude);
+          
+          // Get address from coordinates using reverse geocoding
+          try {
+            const response = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+            );
+            const data = await response.json();
+            if (data.display_name) {
+              form.setValue("address", data.display_name);
+              toast.success("Location detected successfully");
+            }
+          } catch (error) {
+            console.error("Error fetching address:", error);
+          } finally {
+            setIsFetchingLocation(false);
+          }
+        },
+        (error) => {
+          console.error("Error fetching location:", error);
+          toast.error("Unable to fetch your location. Please enable location services.");
+          setIsFetchingLocation(false);
+        }
+      );
+    } else {
+      toast.error("Geolocation is not supported by your browser.");
+    }
+  }, []);
+
+  // Function to detect hazard using Roboflow API
+  const detectHazard = async (imageUrl: string) => {
+    try {
+      console.log("Calling Roboflow API with image URL:", imageUrl);
+      setIsAnalyzingImage(true);
+
+      const response = await fetch('https://detect.roboflow.com/infer/workflows/urbanfix/custom-workflow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: 'j3C8g5q9c8vXk1FyhV1s',
+          inputs: { "image": { "type": "url", "value": imageUrl } }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Roboflow API returned ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log("Roboflow API response:", result);
+
+      const classNames = result.outputs[0]?.model_predictions?.predictions.map(prediction => prediction.class) || [];
+      const detectedHazard = classNames.length > 0 ? classNames.join(", ") : "Nothing detected";
+      
+      // Set the hazard type in the form
+      setHazardType(detectedHazard);
+      form.setValue("hazardType", detectedHazard);
+      
+      // Show a toast notification with the detected hazard
+      toast.success(`Hazard detected: ${detectedHazard}`);
+      
+      return detectedHazard;
+    } catch (error) {
+      console.error("Error detecting hazard:", error);
+      toast.error("Failed to analyze image. Please try again.");
+      return "Unknown";
+    } finally {
+      setIsAnalyzingImage(false);
+    }
+  };
+
+  // Function to upload image to GitHub and get public URL
+  const uploadImage = async (file: File) => {
+    const { USERNAME, REPO_NAME, BRANCH, TOKEN } = GITHUB_CONFIG;
+    
+    // Generate a unique filename to avoid conflicts
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${uuidv4()}.${fileExt}`;
+    
+    console.log("Preparing to upload image to GitHub...");
+    
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = async () => {
+        try {
+          // Extract base64 content from the FileReader result
+          const base64Content = reader.result?.toString().split(',')[1];
+          
+          if (!base64Content) {
+            throw new Error("Failed to read file content");
+          }
+          
+          console.log("Uploading image to GitHub repository...");
+          
+          const response = await fetch(`https://api.github.com/repos/${USERNAME}/${REPO_NAME}/contents/${fileName}`, {
+            method: "PUT",
+            headers: {
+              "Authorization": `token ${TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message: `Upload hazard image: ${fileName}`,
+              content: base64Content,
+              branch: BRANCH,
+            }),
+          });
+          
+          const data = await response.json();
+          
+          if (!response.ok) {
+            console.error("GitHub API error:", data);
+            throw new Error(data.message || "Failed to upload to GitHub");
+          }
+          
+          // Generate the raw content URL for the uploaded file
+          const imageUrl = `https://raw.githubusercontent.com/${USERNAME}/${REPO_NAME}/${BRANCH}/${fileName}`;
+          console.log("Image uploaded to GitHub. URL:", imageUrl);
+          
+          resolve(imageUrl);
+        } catch (error) {
+          console.error("Error in GitHub upload:", error);
+          reject(error);
+        }
+      };
+      
+      reader.onerror = (error) => {
+        console.error("Error reading file:", error);
+        reject(new Error("Failed to read file"));
+      };
+      
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Handle form submission
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (!user) {
       toast.error("You must be logged in to submit a report");
@@ -80,39 +224,22 @@ const ReportPage = () => {
     }
 
     setIsSubmitting(true);
-    
+
     try {
       let imageUrl = null;
-      
-      // Upload image if provided
+
       if (values.image) {
-        const fileExt = values.image.name.split('.').pop();
-        const fileName = `${uuidv4()}.${fileExt}`;
-        const filePath = `hazard-images/${fileName}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('hazard-images')
-          .upload(filePath, values.image);
-          
-        if (uploadError) {
-          throw uploadError;
-        }
-        
-        // Get public URL
-        const { data } = supabase.storage
-          .from('hazard-images')
-          .getPublicUrl(filePath);
-          
-        imageUrl = data.publicUrl;
+        console.log("Processing image...");
+        toast.info("Uploading image to GitHub...");
+        imageUrl = await uploadImage(values.image);
       }
-      
-      // Create hazard report
+
       if (!values.latitude || !values.longitude) {
         throw new Error("Location coordinates are required");
       }
-      
+
       const report = await createHazardReport(
-        values.type,
+        values.hazardType || "unknown",
         values.description,
         {
           lat: values.latitude,
@@ -122,11 +249,11 @@ const ReportPage = () => {
         user.id,
         imageUrl || undefined
       );
-      
+
       if (!report) {
         throw new Error("Failed to create report");
       }
-      
+
       toast.success("Hazard reported successfully!");
       navigate("/map");
     } catch (error: any) {
@@ -137,25 +264,36 @@ const ReportPage = () => {
     }
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle image upload with immediate hazard detection
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     if (file.size > 5 * 1024 * 1024) {
       toast.error("Image size should not exceed 5MB");
       return;
     }
-    
+
     form.setValue("image", file);
-    
-    // Create preview
+
     const reader = new FileReader();
     reader.onloadend = () => {
       setImagePreview(reader.result as string);
     };
     reader.readAsDataURL(file);
+
+    // Upload image immediately for hazard detection
+    try {
+      toast.info("Uploading and analyzing image...");
+      const imageUrl = await uploadImage(file);
+      await detectHazard(imageUrl);
+    } catch (error: any) {
+      console.error("Error processing image:", error);
+      toast.error(error.message || "Error processing image");
+    }
   };
 
+  // Handle location selection on the map
   const handleLocationSelect = (location: { lat: number; lng: number; address: string }) => {
     form.setValue("latitude", location.lat);
     form.setValue("longitude", location.lng);
@@ -163,7 +301,7 @@ const ReportPage = () => {
   };
 
   if (!user) {
-    return null; // Will redirect in useEffect
+    return null;
   }
 
   return (
@@ -176,30 +314,33 @@ const ReportPage = () => {
             Help keep your community safe by reporting public hazards
           </p>
         </div>
-        
+
         <div className="grid md:grid-cols-2 gap-8">
           <div>
             <Card className="mb-6 overflow-hidden">
               <CardContent className="p-0">
                 <div className="h-[300px]">
-                  <MapComponent 
+                  <MapComponent
                     showControls={true}
                     onSelectLocation={handleLocationSelect}
                     readOnly={false}
+                    initialLocation={userLocation}
                   />
                 </div>
               </CardContent>
             </Card>
-            
+
             <div className="bg-muted/30 rounded-lg p-4 border border-border">
               <h3 className="font-medium mb-2 flex items-center">
                 <MapPin size={16} className="mr-2 text-primary" />
                 Location Details
               </h3>
               <p className="text-sm text-muted-foreground mb-3">
-                Click on the map or use the locate button to select the hazard location
+                {isFetchingLocation ? 
+                  "Fetching your location..." : 
+                  "Click on the map or use the locate button to select the hazard location"}
               </p>
-              
+
               {form.watch("address") && (
                 <div className="bg-white p-3 rounded-md border border-border">
                   <div className="text-sm font-medium">Selected Location</div>
@@ -210,39 +351,42 @@ const ReportPage = () => {
               )}
             </div>
           </div>
-          
+
           <div>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 <FormField
                   control={form.control}
-                  name="type"
+                  name="hazardType"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Hazard Type</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        defaultValue={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a hazard type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="pothole">Pothole</SelectItem>
-                          <SelectItem value="waterlogging">Water Logging</SelectItem>
-                          <SelectItem value="other">Other Hazard</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <div className="relative">
+                          <Input
+                            placeholder={isAnalyzingImage ? "Analyzing image..." : "Upload an image to detect hazard type"}
+                            {...field}
+                            value={hazardType || field.value}
+                            readOnly
+                            className={isAnalyzingImage ? "pr-10" : ""}
+                          />
+                          {isAnalyzingImage && (
+                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                              <Loader2 size={16} className="animate-spin text-muted-foreground" />
+                            </div>
+                          )}
+                        </div>
+                      </FormControl>
                       <FormDescription>
-                        Select the type of hazard you want to report
+                        {hazardType ? 
+                          "Hazard type detected from image" : 
+                          "Upload an image to automatically detect the hazard type"}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="description"
@@ -263,7 +407,7 @@ const ReportPage = () => {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="address"
@@ -271,22 +415,35 @@ const ReportPage = () => {
                     <FormItem>
                       <FormLabel>Address</FormLabel>
                       <FormControl>
-                        <Input placeholder="Address or location description" {...field} />
+                        <div className="relative">
+                          <Input 
+                            placeholder={isFetchingLocation ? "Detecting your location..." : "Address or location description"} 
+                            {...field} 
+                            className={isFetchingLocation ? "pr-10" : ""}
+                          />
+                          {isFetchingLocation && (
+                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                              <Loader2 size={16} className="animate-spin text-muted-foreground" />
+                            </div>
+                          )}
+                        </div>
                       </FormControl>
                       <FormDescription>
-                        The address will be automatically filled when you select a location on the map
+                        {isFetchingLocation ? 
+                          "Detecting your location automatically..." : 
+                          "The address will be automatically filled when you select a location on the map"}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="image"
                   render={({ field: { value, onChange, ...field } }) => (
                     <FormItem>
-                      <FormLabel>Upload Image (Optional)</FormLabel>
+                      <FormLabel>Upload Image</FormLabel>
                       <FormControl>
                         <div className="flex flex-col space-y-3">
                           <div className="flex items-center">
@@ -303,15 +460,20 @@ const ReportPage = () => {
                               variant="secondary"
                               onClick={() => document.getElementById("image")?.click()}
                               className="mr-2"
+                              disabled={isAnalyzingImage}
                             >
-                              <Upload size={16} className="mr-2" />
-                              Select Image
+                              {isAnalyzingImage ? (
+                                <Loader2 size={16} className="mr-2 animate-spin" />
+                              ) : (
+                                <Upload size={16} className="mr-2" />
+                              )}
+                              {isAnalyzingImage ? "Analyzing..." : "Select Image"}
                             </Button>
                             <span className="text-sm text-muted-foreground">
                               {value?.name || "No file selected"}
                             </span>
                           </div>
-                          
+
                           {imagePreview && (
                             <div className="relative h-48 w-full overflow-hidden rounded-md border border-border">
                               <img
@@ -327,7 +489,10 @@ const ReportPage = () => {
                                 onClick={() => {
                                   setImagePreview(null);
                                   form.setValue("image", undefined);
+                                  setHazardType(null);
+                                  form.setValue("hazardType", "");
                                 }}
+                                disabled={isAnalyzingImage}
                               >
                                 &times;
                               </Button>
@@ -336,18 +501,18 @@ const ReportPage = () => {
                         </div>
                       </FormControl>
                       <FormDescription>
-                        Upload an image of the hazard (max size: 5MB)
+                        Upload an image to automatically detect the hazard type (max size: 5MB)
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                
-                <Button 
-                  type="submit" 
-                  className="w-full" 
+
+                <Button
+                  type="submit"
+                  className="w-full"
                   size="lg"
-                  disabled={isSubmitting || !form.formState.isValid}
+                  disabled={isSubmitting || !form.formState.isValid || isAnalyzingImage || isFetchingLocation}
                 >
                   {isSubmitting ? (
                     <>
