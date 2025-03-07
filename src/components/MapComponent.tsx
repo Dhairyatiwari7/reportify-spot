@@ -20,6 +20,19 @@ interface MapComponentProps {
   initialLocation?: { lat: number; lng: number };
 }
 
+// Add the missing infoWindow property to the Google Maps Marker type
+declare global {
+  interface Window {
+    google: typeof google;
+  }
+  
+  namespace google.maps {
+    interface Marker {
+      infoWindow?: google.maps.InfoWindow;
+    }
+  }
+}
+
 const MapComponent: React.FC<MapComponentProps> = ({
   hazards = [],
   onSelectLocation,

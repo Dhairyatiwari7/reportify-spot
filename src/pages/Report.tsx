@@ -25,6 +25,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { createHazardReport } from "@/services/hazardService";
 import { v4 as uuidv4 } from "uuid";
+import { HazardType } from "@/types/supabase";
 
 const formSchema = z.object({
   description: z
@@ -248,7 +249,7 @@ const ReportPage = () => {
       };
   
       // Use the hazardType from the form, defaulting to "other" if empty
-      const hazardType = values.hazardType || "other";
+      const hazardType = (values.hazardType || "other") as HazardType;
   
       // Call the createHazardReport function with proper parameters
       const report = await createHazardReport(
