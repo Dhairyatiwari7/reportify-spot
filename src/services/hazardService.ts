@@ -20,6 +20,7 @@ const transformHazardRow = (row: any): HazardReport => {
     votes: row.votes,
     comments: row.comments,
     image_url: row.image_url,
+    token_reward: row.token_reward
   };
 };
 
@@ -221,6 +222,80 @@ export const voteHazardReport = async (hazardId: string, userId: string): Promis
   } catch (error: any) {
     console.error(`Error voting for hazard report with id ${hazardId}:`, error);
     toast.error('Failed to register vote');
+    return false;
+  }
+};
+
+// Admin: Get all hazard reports for admin dashboard
+export const getAdminHazardReports = async (): Promise<HazardReport[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('hazard_reports')
+      .select(`
+        *,
+        reporter:reported_by (
+          full_name
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    return data.map(row => ({
+      ...transformHazardRow(row),
+      reporter_name: row.reporter?.full_name
+    }));
+  } catch (error: any) {
+    console.error('Error fetching admin hazard reports:', error);
+    toast.error('Failed to load hazard reports');
+    return [];
+  }
+};
+
+// Admin: Update hazard status
+export const updateHazardStatus = async (
+  id: string, 
+  status: HazardStatus
+): Promise<HazardReport | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('hazard_reports')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    toast.success(`Hazard status updated to ${status}`);
+    return transformHazardRow(data);
+  } catch (error: any) {
+    console.error(`Error updating hazard status for id ${id}:`, error);
+    toast.error('Failed to update hazard status');
+    return null;
+  }
+};
+
+// Admin: Check if user is admin
+export const checkIfUserIsAdmin = async (userId: string): Promise<boolean> => {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data.is_admin === true;
+  } catch (error: any) {
+    console.error('Error checking admin status:', error);
     return false;
   }
 };

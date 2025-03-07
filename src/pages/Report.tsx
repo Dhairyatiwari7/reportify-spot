@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
@@ -42,10 +43,8 @@ const GITHUB_CONFIG = {
   USERNAME: "Dhairyatiwari7",
   REPO_NAME: "images",
   BRANCH: "master",
-  TOKEN: "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", 
+  TOKEN: "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", 
 };
-
-
 
 const ReportPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -224,39 +223,47 @@ const ReportPage = () => {
       navigate("/login");
       return;
     }
-
+  
     setIsSubmitting(true);
-
+  
     try {
       let imageUrl = null;
-
+  
       if (values.image) {
         console.log("Processing image...");
         toast.info("Uploading image to GitHub...");
         imageUrl = await uploadImage(values.image);
       }
-
+  
+      // Ensure we have all required data
       if (!values.latitude || !values.longitude) {
         throw new Error("Location coordinates are required");
       }
-
+  
+      // Create the location object
+      const location = {
+        lat: Number(values.latitude), // Ensure lat is a number
+        lng: Number(values.longitude), // Ensure lng is a number
+        address: values.address
+      };
+  
+      // Use the hazardType from the form, defaulting to "other" if empty
+      const hazardType = values.hazardType || "other";
+  
+      // Call the createHazardReport function with proper parameters
       const report = await createHazardReport(
-        values.hazardType || "unknown",
+        hazardType,
         values.description,
-        {
-          lat: values.latitude,
-          lng: values.longitude,
-          address: values.address
-        },
+        location,
         user.id,
-        imageUrl || undefined
+        imageUrl
       );
-
+  
       if (!report) {
         throw new Error("Failed to create report");
       }
-
-      toast.success("Hazard reported successfully!");
+  
+      toast.success("Hazard reported successfully! You've earned 10 tokens!");
       navigate("/map");
     } catch (error: any) {
       console.error("Report error:", error);

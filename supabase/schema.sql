@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   full_name TEXT NOT NULL,
-  avatar_url TEXT
+  avatar_url TEXT,
+  tokens INTEGER DEFAULT 0 NOT NULL
 );
 
 -- Create the hazard_reports table to store hazard information
@@ -27,7 +28,8 @@ CREATE TABLE IF NOT EXISTS public.hazard_reports (
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'investigating', 'resolved')),
   votes INTEGER NOT NULL DEFAULT 0,
   comments INTEGER NOT NULL DEFAULT 0,
-  image_url TEXT
+  image_url TEXT,
+  token_reward INTEGER DEFAULT 0
 );
 
 -- Create the hazard_votes table to track user votes on hazards
@@ -46,6 +48,28 @@ CREATE TABLE IF NOT EXISTS public.hazard_comments (
   hazard_id UUID REFERENCES public.hazard_reports(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
   content TEXT NOT NULL
+);
+
+-- Create store items table
+CREATE TABLE IF NOT EXISTS public.store_items (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  token_cost INTEGER NOT NULL,
+  image_url TEXT,
+  available BOOLEAN DEFAULT true
+);
+
+-- Create user_rewards table to track redemptions
+CREATE TABLE IF NOT EXISTS public.user_rewards (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  item_id UUID REFERENCES public.store_items(id) ON DELETE CASCADE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'fulfilled', 'cancelled')),
+  redemption_date TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create functions to handle vote counts
@@ -86,6 +110,51 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Create function to award tokens to users when their hazard report is created
+CREATE OR REPLACE FUNCTION award_report_tokens()
+RETURNS TRIGGER AS $$
+DECLARE
+  token_amount INTEGER := 10; -- Default token reward for reporting
+BEGIN
+  -- Set the token reward on the report
+  NEW.token_reward := token_amount;
+  
+  -- Add tokens to the user's profile
+  UPDATE public.profiles
+  SET tokens = tokens + token_amount
+  WHERE id = NEW.reported_by;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create function to check if user has enough tokens for redemption
+CREATE OR REPLACE FUNCTION check_token_balance() 
+RETURNS TRIGGER AS $$
+DECLARE
+  token_cost INTEGER;
+  user_tokens INTEGER;
+BEGIN
+  -- Get the cost of the item
+  SELECT token_cost INTO token_cost FROM public.store_items WHERE id = NEW.item_id;
+  
+  -- Get the user's token balance
+  SELECT tokens INTO user_tokens FROM public.profiles WHERE id = NEW.user_id;
+  
+  -- Check if user has enough tokens
+  IF user_tokens < token_cost THEN
+    RAISE EXCEPTION 'Insufficient tokens to redeem this item';
+  END IF;
+  
+  -- Deduct tokens from user
+  UPDATE public.profiles
+  SET tokens = tokens - token_cost
+  WHERE id = NEW.user_id;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Create triggers to update counts
 CREATE OR REPLACE TRIGGER on_comment_added
 AFTER INSERT ON public.hazard_comments
@@ -97,11 +166,25 @@ AFTER DELETE ON public.hazard_comments
 FOR EACH ROW
 EXECUTE FUNCTION decrement_hazard_comments(OLD.hazard_id);
 
+-- Create trigger to award tokens on report creation
+CREATE OR REPLACE TRIGGER on_hazard_report_created
+BEFORE INSERT ON public.hazard_reports
+FOR EACH ROW
+EXECUTE FUNCTION award_report_tokens();
+
+-- Create trigger to check token balance on redemption
+CREATE OR REPLACE TRIGGER on_reward_redemption
+BEFORE INSERT ON public.user_rewards
+FOR EACH ROW
+EXECUTE FUNCTION check_token_balance();
+
 -- Set up Row Level Security policies
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hazard_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hazard_votes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hazard_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.store_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_rewards ENABLE ROW LEVEL SECURITY;
 
 -- Profile policies
 CREATE POLICY "Public profiles are viewable by everyone"
@@ -128,6 +211,10 @@ CREATE POLICY "Authenticated users can create hazard reports"
 CREATE POLICY "Users can update their own hazard reports"
   ON public.hazard_reports FOR UPDATE
   USING (auth.uid() = reported_by);
+
+CREATE POLICY "Admins can update any hazard report"
+  ON public.hazard_reports FOR UPDATE
+  USING (auth.uid() IN (SELECT id FROM public.profiles WHERE is_admin = true));
 
 -- Hazard votes policies
 CREATE POLICY "Hazard votes are viewable by everyone"
@@ -159,6 +246,40 @@ CREATE POLICY "Users can delete their own comments"
   ON public.hazard_comments FOR DELETE
   USING (auth.uid() = user_id);
 
+-- Store items policies
+CREATE POLICY "Store items are viewable by everyone"
+  ON public.store_items FOR SELECT
+  USING (true);
+
+CREATE POLICY "Only admins can manage store items"
+  ON public.store_items FOR INSERT
+  WITH CHECK (auth.uid() IN (SELECT id FROM public.profiles WHERE is_admin = true));
+
+CREATE POLICY "Only admins can update store items"
+  ON public.store_items FOR UPDATE
+  USING (auth.uid() IN (SELECT id FROM public.profiles WHERE is_admin = true));
+
+CREATE POLICY "Only admins can delete store items"
+  ON public.store_items FOR DELETE
+  USING (auth.uid() IN (SELECT id FROM public.profiles WHERE is_admin = true));
+
+-- User rewards policies
+CREATE POLICY "Users can view their own rewards"
+  ON public.user_rewards FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Admins can view all rewards"
+  ON public.user_rewards FOR SELECT
+  USING (auth.uid() IN (SELECT id FROM public.profiles WHERE is_admin = true));
+
+CREATE POLICY "Users can redeem rewards"
+  ON public.user_rewards FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Admins can update reward status"
+  ON public.user_rewards FOR UPDATE
+  USING (auth.uid() IN (SELECT id FROM public.profiles WHERE is_admin = true));
+
 -- Create a function to create a profile when a user signs up
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
@@ -174,3 +295,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Add is_admin column to profiles table
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
