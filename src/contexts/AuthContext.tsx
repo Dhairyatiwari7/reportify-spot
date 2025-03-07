@@ -1,9 +1,14 @@
-
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+
+type ProfileUpdateData = {
+  id: string;
+  fullName: string;
+  avatarUrl: string | null;
+};
 
 type AuthContextType = {
   session: Session | null;
@@ -12,6 +17,7 @@ type AuthContextType = {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, fullName: string) => Promise<void>;
   signOut: () => Promise<void>;
+  updateUserProfile: (data: ProfileUpdateData) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -129,8 +135,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const updateUserProfile = async (data: ProfileUpdateData) => {
+    try {
+      setIsLoading(true);
+      
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: data.fullName,
+          avatar_url: data.avatarUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', data.id);
+        
+      if (error) {
+        throw error;
+      }
+      
+      toast.success('Profile updated successfully');
+    } catch (error: any) {
+      toast.error(error.message || 'Error updating profile');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ session, user, isLoading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ session, user, isLoading, signIn, signUp, signOut, updateUserProfile }}>
       {children}
     </AuthContext.Provider>
   );

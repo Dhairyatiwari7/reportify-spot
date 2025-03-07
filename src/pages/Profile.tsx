@@ -1,5 +1,3 @@
-
-// Fix the File type issue when handling form data
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -178,8 +176,7 @@ const Profile = () => {
               <TabsTrigger value="rewards" className="flex items-center">
                 <Award className="mr-2 h-4 w-4" /> My Rewards
                 {userRewards.length > 0 && <Badge className="ml-2">{userRewards.length}</Badge>}
-              </TabsTrigger>
-            </TabsList>
+              </TabsList>
 
             <TabsContent value="profile" className="space-y-6">
               <Card>
