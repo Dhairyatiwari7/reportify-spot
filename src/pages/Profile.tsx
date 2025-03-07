@@ -176,7 +176,8 @@ const Profile = () => {
               <TabsTrigger value="rewards" className="flex items-center">
                 <Award className="mr-2 h-4 w-4" /> My Rewards
                 {userRewards.length > 0 && <Badge className="ml-2">{userRewards.length}</Badge>}
-              </TabsList>
+              </TabsTrigger>
+            </TabsList>
 
             <TabsContent value="profile" className="space-y-6">
               <Card>
