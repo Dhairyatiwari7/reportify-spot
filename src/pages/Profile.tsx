@@ -1,507 +1,457 @@
+
+// Fix the File type issue when handling form data
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import { getUserHazardReports } from "@/services/hazardService";
+import { getUserRewards, getUserTokens } from "@/services/rewardService";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { User, Bell } from "lucide-react";
-import { createClient } from "@supabase/supabase-js";
-import { useToast } from "@/components/ui/use-toast";
-import  {supabase}  from "../lib/supabase";
-// Initialize Supabase client
+import { HazardReport, UserReward } from "@/types/supabase";
+import { User, Upload, Award, MapPin, Calendar, Package, AlertTriangle } from "lucide-react";
+import { format } from "date-fns";
+import { supabase } from "@/lib/supabase";
 
 const Profile = () => {
-  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState("profile");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [userReports, setUserReports] = useState<HazardReport[]>([]);
+  const [userRewards, setUserRewards] = useState<UserReward[]>([]);
+  const [tokens, setTokens] = useState(0);
   
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    address: "",
-    notifications: {
-      email: false,
-      push: false,
-      sms: false,
-    }
-  });
+  const { user, updateUserProfile } = useAuth();
+  const navigate = useNavigate();
 
-  // Fetch user and profile data
   useEffect(() => {
-    const fetchUserAndProfile = async () => {
-      try {
-        setLoading(true);
-        
-        // Get the current user
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        
-        if (userError) throw userError;
-        
-        if (user) {
-          setUser(user);
-          
-          // Get the user's profile from the profiles table
-          const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
-            
-          if (profileError && profileError.code !== 'PGRST116') {
-            throw profileError;
-          }
-          
-          // Get notification preferences (assuming they are stored in user metadata)
-          const notifications = user.user_metadata?.notifications || {
-            email: false,
-            push: false,
-            sms: false
-          };
-          
-          // Set the profile and form data
-          setProfile(profile || {});
-          setFormData({
-            name: profile?.full_name || user.user_metadata?.full_name || "",
-            email: user.email || "",
-            phone: profile?.phone || user.user_metadata?.phone || "",
-            address: profile?.address || user.user_metadata?.address || "",
-            notifications
-          });
-        }
-      } catch (error) {
-        console.error('Error fetching user data:', error);
-        toast({
-          title: "Error",
-          description: "Failed to load profile data",
-          variant: "destructive"
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchUserAndProfile();
-  }, [toast]);
-
-  // Handle input changes for profile fields
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
-  };
-
-  // Handle notification preference changes
-  const handleNotificationChange = (e) => {
-    const { name, checked } = e.target;
-    setFormData({
-      ...formData,
-      notifications: {
-        ...formData.notifications,
-        [name]: checked
-      }
-    });
-  };
-
-  // Handle profile form submission
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      setLoading(true);
-      
-      // Update profile in profiles table
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          full_name: formData.name,
-          phone: formData.phone,
-          address: formData.address,
-          updated_at: new Date()
-        })
-        .eq('id', user.id);
-        
-      if (profileError) throw profileError;
-      
-      // Update user metadata including notifications
-      const { error: userError } = await supabase.auth.updateUser({
-        data: {
-          full_name: formData.name,
-          phone: formData.phone,
-          address: formData.address,
-          notifications: formData.notifications
-        }
-      });
-      
-      if (userError) throw userError;
-      
-      // Fetch the updated profile
-      const { data: updatedProfile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-        
-      setProfile(updatedProfile);
-      
-      toast({
-        title: "Success",
-        description: "Profile updated successfully"
-      });
-      
-      setIsEditing(false);
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update profile",
-        variant: "destructive"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Handle password update
-  const handlePasswordUpdate = async (e) => {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    const currentPassword = formData.get('current-password');
-    const newPassword = formData.get('new-password');
-    const confirmPassword = formData.get('confirm-password');
-    
-    if (newPassword !== confirmPassword) {
-      toast({
-        title: "Error",
-        description: "New passwords do not match",
-        variant: "destructive"
-      });
+    if (!user) {
+      toast.error("Please log in to view your profile");
+      navigate("/login");
       return;
     }
+
+    const fetchProfileData = async () => {
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .single();
+
+        if (error) throw error;
+
+        if (data) {
+          setFullName(data.full_name || "");
+          setEmail(user.email || "");
+          setAvatarUrl(data.avatar_url);
+          setTokens(data.tokens || 0);
+        }
+
+        // Fetch user reports
+        const reports = await getUserHazardReports(user.id);
+        setUserReports(reports);
+
+        // Fetch user rewards
+        const rewards = await getUserRewards(user.id);
+        setUserRewards(rewards);
+
+      } catch (error) {
+        console.error("Error fetching profile:", error);
+        toast.error("Failed to load profile data");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchProfileData();
+  }, [user, navigate]);
+
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!user) return;
+    
+    setIsSaving(true);
     
     try {
-      setLoading(true);
-      
-      // Update password
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
+      await updateUserProfile({
+        id: user.id,
+        fullName,
+        avatarUrl
       });
       
-      if (error) throw error;
-      
-      toast({
-        title: "Success",
-        description: "Password updated successfully"
-      });
-      
-      // Clear the form
-      e.target.reset();
+      toast.success("Profile updated successfully");
     } catch (error) {
-      console.error('Error updating password:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update password",
-        variant: "destructive"
-      });
+      console.error("Error updating profile:", error);
+      toast.error("Failed to update profile");
     } finally {
-      setLoading(false);
+      setIsSaving(false);
     }
   };
 
-  // Handle saving notification preferences
-  const handleSaveNotifications = async () => {
+  const uploadAvatar = async (event: React.ChangeEvent<HTMLInputElement>) => {
     try {
-      setLoading(true);
+      if (!event.target.files || event.target.files.length === 0) {
+        return;
+      }
       
-      // Update user metadata with notification preferences
-      const { error } = await supabase.auth.updateUser({
-        data: {
-          notifications: formData.notifications
-        }
-      });
+      const file = event.target.files[0];
+      const fileExt = file.name.split(".").pop();
+      const filePath = `${user?.id}/avatar.${fileExt}`;
       
-      if (error) throw error;
+      let { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(filePath, file, { upsert: true });
       
-      toast({
-        title: "Success",
-        description: "Notification preferences updated"
-      });
+      if (uploadError) {
+        throw uploadError;
+      }
+      
+      const { data } = supabase.storage
+        .from("avatars")
+        .getPublicUrl(filePath);
+      
+      setAvatarUrl(data.publicUrl);
+      toast.success("Avatar uploaded successfully");
     } catch (error) {
-      console.error('Error updating notifications:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update notification preferences",
-        variant: "destructive"
-      });
-    } finally {
-      setLoading(false);
+      console.error("Error uploading avatar:", error);
+      toast.error("Error uploading avatar");
     }
   };
 
-  if (loading && !user) {
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "pending":
+        return <Badge variant="outline" className="bg-yellow-100 text-yellow-800">Pending</Badge>;
+      case "fulfilled":
+        return <Badge variant="outline" className="bg-green-100 text-green-800">Fulfilled</Badge>;
+      case "cancelled":
+        return <Badge variant="outline" className="bg-red-100 text-red-800">Cancelled</Badge>;
+      default:
+        return <Badge variant="outline">Unknown</Badge>;
+    }
+  };
+
+  if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col">
         <Navbar />
-        <main className="flex-1 py-12 bg-gray-50 flex items-center justify-center">
-          <p>Loading profile...</p>
+        <main className="flex-1 flex items-center justify-center">
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+          <span className="ml-3">Loading profile...</span>
         </main>
         <Footer />
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen flex flex-col">
-      <Navbar />
-      <main className="flex-1 py-12 bg-gray-50">
-        <div className="container px-4 sm:px-6">
-          <div className="max-w-4xl mx-auto">
-            <div className="flex items-center mb-8">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mr-6">
-                <User size={30} className="text-primary" />
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold">{formData.name || "Your Profile"}</h1>
-                <p className="text-muted-foreground">Manage your account and settings</p>
-              </div>
-            </div>
+  if (!user) {
+    return null;
+  }
 
-            <Tabs defaultValue="profile">
-              <TabsList className="mb-8">
-                <TabsTrigger value="profile">Profile</TabsTrigger>
-                <TabsTrigger value="notifications">Notifications</TabsTrigger>
-                <TabsTrigger value="security">Security</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="profile">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Personal Information</CardTitle>
-                    <CardDescription>
-                      Manage your personal details and contact information
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handleSubmit}>
-                      <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="space-y-2">
-                            <Label htmlFor="name">Full Name</Label>
+  return (
+    <div className="min-h-screen flex flex-col bg-background">
+      <Navbar />
+      <main className="flex-1 container mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="mb-8">
+              <TabsTrigger value="profile" className="flex items-center">
+                <User className="mr-2 h-4 w-4" /> Profile
+              </TabsTrigger>
+              <TabsTrigger value="reports" className="flex items-center">
+                <AlertTriangle className="mr-2 h-4 w-4" /> My Reports
+                {userReports.length > 0 && <Badge className="ml-2">{userReports.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="rewards" className="flex items-center">
+                <Award className="mr-2 h-4 w-4" /> My Rewards
+                {userRewards.length > 0 && <Badge className="ml-2">{userRewards.length}</Badge>}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="profile" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Profile Information</CardTitle>
+                  <CardDescription>
+                    Manage your account details and preferences
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleProfileUpdate} className="space-y-6">
+                    <div className="space-y-4">
+                      <div className="flex flex-col items-center sm:flex-row sm:space-x-6">
+                        <Avatar className="h-24 w-24">
+                          <AvatarImage src={avatarUrl || ""} alt={fullName} />
+                          <AvatarFallback className="text-lg">
+                            {fullName.split(" ").map(n => n[0]).join("").toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+
+                        <div className="mt-4 sm:mt-0 flex-1">
+                          <div className="flex flex-col space-y-1.5">
+                            <label htmlFor="avatar" className="text-sm font-medium">
+                              Profile Photo
+                            </label>
                             <Input
-                              id="name"
-                              name="name"
-                              value={formData.name}
-                              onChange={handleInputChange}
-                              readOnly={!isEditing}
-                              className={!isEditing ? "bg-gray-50" : ""}
-                            />
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="email">Email</Label>
-                            <Input
-                              id="email"
-                              name="email"
-                              type="email"
-                              value={formData.email}
-                              readOnly
-                              className="bg-gray-50"
-                            />
-                            <p className="text-xs text-muted-foreground">Email cannot be changed</p>
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="phone">Phone Number</Label>
-                            <Input
-                              id="phone"
-                              name="phone"
-                              value={formData.phone}
-                              onChange={handleInputChange}
-                              readOnly={!isEditing}
-                              className={!isEditing ? "bg-gray-50" : ""}
-                            />
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="address">Address</Label>
-                            <Input
-                              id="address"
-                              name="address"
-                              value={formData.address}
-                              onChange={handleInputChange}
-                              readOnly={!isEditing}
-                              className={!isEditing ? "bg-gray-50" : ""}
+                              id="avatar"
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  uploadAvatar(e);
+                                }
+                              }}
+                              className="cursor-pointer"
                             />
                           </div>
                         </div>
-                        
-                        <div className="flex justify-end space-x-4">
-                          {isEditing ? (
-                            <>
-                              <Button 
-                                variant="outline" 
-                                type="button"
-                                onClick={() => {
-                                  setIsEditing(false);
-                                  setFormData({
-                                    name: profile?.full_name || user?.user_metadata?.full_name || "",
-                                    email: user?.email || "",
-                                    phone: profile?.phone || user?.user_metadata?.phone || "",
-                                    address: profile?.address || user?.user_metadata?.address || "",
-                                    notifications: user?.user_metadata?.notifications || {
-                                      email: false,
-                                      push: false,
-                                      sms: false
-                                    }
-                                  });
-                                }}
-                                disabled={loading}
-                              >
-                                Cancel
-                              </Button>
-                              <Button type="submit" disabled={loading}>
-                                {loading ? "Saving..." : "Save Changes"}
-                              </Button>
-                            </>
-                          ) : (
-                            <Button 
-                              type="button" 
-                              onClick={() => setIsEditing(true)}
-                            >
-                              Edit Profile
-                            </Button>
+                      </div>
+
+                      <div className="flex flex-col space-y-1.5">
+                        <label htmlFor="name" className="text-sm font-medium">
+                          Full Name
+                        </label>
+                        <Input
+                          id="name"
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          placeholder="Your full name"
+                        />
+                      </div>
+
+                      <div className="flex flex-col space-y-1.5">
+                        <label htmlFor="email" className="text-sm font-medium">
+                          Email
+                        </label>
+                        <Input
+                          id="email"
+                          value={email}
+                          readOnly
+                          disabled
+                          className="bg-muted"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Email cannot be changed
+                        </p>
+                      </div>
+
+                      <div className="bg-muted/30 rounded-lg p-4 flex flex-col sm:flex-row items-center justify-between border">
+                        <div className="flex items-center mb-4 sm:mb-0">
+                          <Award className="h-8 w-8 text-amber-500 mr-3" />
+                          <div>
+                            <h3 className="font-medium">Token Balance</h3>
+                            <p className="text-2xl font-bold">{tokens}</p>
+                          </div>
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => navigate("/store")}
+                        >
+                          Visit Store
+                        </Button>
+                      </div>
+                    </div>
+
+                    <Button type="submit" disabled={isSaving}>
+                      {isSaving ? "Saving..." : "Save Changes"}
+                    </Button>
+                  </form>
+                </CardContent>
+                <CardFooter className="flex flex-col items-start">
+                  <Separator className="my-4 w-full" />
+                  <div className="text-sm text-muted-foreground">
+                    <p>
+                      Report hazards in your community to earn tokens, which
+                      you can redeem for rewards in our store.
+                    </p>
+                  </div>
+                </CardFooter>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="reports" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>My Hazard Reports</CardTitle>
+                  <CardDescription>
+                    Track the status of hazards you've reported
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {userReports.length === 0 ? (
+                    <div className="text-center py-12">
+                      <AlertTriangle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-medium">No reports yet</h3>
+                      <p className="text-muted-foreground mt-1">
+                        You haven't reported any hazards yet
+                      </p>
+                      <Button
+                        onClick={() => navigate("/report")}
+                        className="mt-4"
+                      >
+                        Report a Hazard
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {userReports.map((report) => (
+                        <div
+                          key={report.id}
+                          className="flex flex-col sm:flex-row border rounded-lg overflow-hidden"
+                        >
+                          {report.image_url && (
+                            <div className="sm:w-1/3 h-40 sm:h-auto">
+                              <img
+                                src={report.image_url}
+                                alt={report.description}
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
                           )}
-                        </div>
-                      </div>
-                    </form>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              
-              <TabsContent value="notifications">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Notification Preferences</CardTitle>
-                    <CardDescription>
-                      Control how and when you receive notifications
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={(e) => { e.preventDefault(); handleSaveNotifications(); }}>
-                      <div className="space-y-6">
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <Bell size={18} />
-                              <Label htmlFor="email-notifications">Email Notifications</Label>
+                          <div className="p-4 flex-1">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <Badge
+                                  className={`${
+                                    report.status === "active"
+                                      ? "bg-yellow-500"
+                                      : report.status === "investigating"
+                                      ? "bg-blue-500"
+                                      : "bg-green-500"
+                                  } text-white mb-2`}
+                                >
+                                  {report.status.charAt(0).toUpperCase() +
+                                    report.status.slice(1)}
+                                </Badge>
+                                <h3 className="font-medium">{report.description}</h3>
+                              </div>
+                              <Badge variant="outline">
+                                +{report.token_reward} Tokens
+                              </Badge>
                             </div>
-                            <input
-                              type="checkbox"
-                              id="email-notifications"
-                              name="email"
-                              checked={formData.notifications.email}
-                              onChange={handleNotificationChange}
-                              className="h-4 w-4"
-                            />
-                          </div>
-                          
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <Bell size={18} />
-                              <Label htmlFor="push-notifications">Push Notifications</Label>
+
+                            <div className="text-sm text-muted-foreground mt-2 space-y-1">
+                              <div className="flex items-center">
+                                <MapPin className="h-3.5 w-3.5 mr-1" />
+                                <span className="line-clamp-1">
+                                  {report.location.address}
+                                </span>
+                              </div>
+                              <div className="flex items-center">
+                                <Calendar className="h-3.5 w-3.5 mr-1" />
+                                <span>
+                                  Reported on{" "}
+                                  {format(
+                                    new Date(report.reported_at),
+                                    "MMM d, yyyy"
+                                  )}
+                                </span>
+                              </div>
                             </div>
-                            <input
-                              type="checkbox"
-                              id="push-notifications"
-                              name="push"
-                              checked={formData.notifications.push}
-                              onChange={handleNotificationChange}
-                              className="h-4 w-4"
-                            />
-                          </div>
-                          
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <Bell size={18} />
-                              <Label htmlFor="sms-notifications">SMS Notifications</Label>
+
+                            <div className="mt-4">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => navigate(`/report/${report.id}`)}
+                              >
+                                View Details
+                              </Button>
                             </div>
-                            <input
-                              type="checkbox"
-                              id="sms-notifications"
-                              name="sms"
-                              checked={formData.notifications.sms}
-                              onChange={handleNotificationChange}
-                              className="h-4 w-4"
-                            />
                           </div>
                         </div>
-                        
-                        <div className="flex justify-end">
-                          <Button type="submit" disabled={loading}>
-                            {loading ? "Saving..." : "Save Preferences"}
-                          </Button>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="rewards" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>My Rewards</CardTitle>
+                  <CardDescription>
+                    Track your redeemed rewards and their status
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {userRewards.length === 0 ? (
+                    <div className="text-center py-12">
+                      <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-medium">No rewards yet</h3>
+                      <p className="text-muted-foreground mt-1">
+                        You haven't redeemed any rewards yet
+                      </p>
+                      <Button
+                        onClick={() => navigate("/store")}
+                        className="mt-4"
+                      >
+                        Visit Store
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {userRewards.map((reward) => (
+                        <div
+                          key={reward.id}
+                          className="border rounded-lg p-4"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <h3 className="font-medium">{reward.item?.name}</h3>
+                            {getStatusBadge(reward.status)}
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-3">
+                            {reward.item?.description}
+                          </p>
+                          <div className="flex items-center text-amber-500 mb-4">
+                            <Award className="h-4 w-4 mr-1" />
+                            <span className="font-medium">
+                              {reward.item?.token_cost} Tokens
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Redeemed on{" "}
+                            {format(new Date(reward.created_at), "MMM d, yyyy")}
+                          </div>
                         </div>
-                      </div>
-                    </form>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              
-              <TabsContent value="security">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Security Settings</CardTitle>
-                    <CardDescription>
-                      Manage your password and security preferences
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handlePasswordUpdate}>
-                      <div className="space-y-6">
-                        <div className="space-y-2">
-                          <Label htmlFor="current-password">Current Password</Label>
-                          <Input 
-                            id="current-password" 
-                            name="current-password" 
-                            type="password" 
-                            required 
-                          />
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <Label htmlFor="new-password">New Password</Label>
-                          <Input 
-                            id="new-password" 
-                            name="new-password" 
-                            type="password" 
-                            required 
-                          />
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <Label htmlFor="confirm-password">Confirm New Password</Label>
-                          <Input 
-                            id="confirm-password" 
-                            name="confirm-password" 
-                            type="password" 
-                            required 
-                          />
-                        </div>
-                        
-                        <div className="flex justify-end">
-                          <Button type="submit" disabled={loading}>
-                            {loading ? "Updating..." : "Update Password"}
-                          </Button>
-                        </div>
-                      </div>
-                    </form>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+                <CardFooter>
+                  <div className="w-full flex justify-between items-center">
+                    <div className="flex items-center">
+                      <Award className="h-5 w-5 text-amber-500 mr-2" />
+                      <span className="font-medium">{tokens} Tokens Available</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => navigate("/store")}
+                    >
+                      Redeem More Rewards
+                    </Button>
+                  </div>
+                </CardFooter>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </main>
       <Footer />

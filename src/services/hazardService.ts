@@ -118,6 +118,68 @@ export const getHazardReportById = async (id: string): Promise<HazardReport | nu
   }
 };
 
+// Vote for a hazard report
+export const voteHazardReport = async (reportId: string, userId: string): Promise<boolean> => {
+  try {
+    // First check if the user has already voted for this report
+    const { data: existingVote, error: checkError } = await supabase
+      .from("hazard_votes")
+      .select("*")
+      .eq("report_id", reportId)
+      .eq("user_id", userId)
+      .single();
+
+    if (checkError && checkError.code !== "PGRST116") {
+      // If error is not "no rows returned", it's a genuine error
+      throw checkError;
+    }
+
+    if (existingVote) {
+      // User already voted, so we'll remove their vote
+      const { error: deleteError } = await supabase
+        .from("hazard_votes")
+        .delete()
+        .eq("report_id", reportId)
+        .eq("user_id", userId);
+
+      if (deleteError) throw deleteError;
+
+      // Decrement the vote count in the hazard report
+      const { error: updateError } = await supabase
+        .from("hazard_reports")
+        .update({ votes: supabase.rpc('decrement', { x: 1 }) })
+        .eq("id", reportId);
+
+      if (updateError) throw updateError;
+
+      return false; // Indicating vote was removed
+    } else {
+      // User hasn't voted yet, so add their vote
+      const { error: insertError } = await supabase
+        .from("hazard_votes")
+        .insert({
+          report_id: reportId,
+          user_id: userId
+        });
+
+      if (insertError) throw insertError;
+
+      // Increment the vote count in the hazard report
+      const { error: updateError } = await supabase
+        .from("hazard_reports")
+        .update({ votes: supabase.rpc('increment', { x: 1 }) })
+        .eq("id", reportId);
+
+      if (updateError) throw updateError;
+
+      return true; // Indicating vote was added
+    }
+  } catch (error) {
+    console.error("Error voting for hazard report:", error);
+    return false;
+  }
+};
+
 // Admin functions
 export const getAdminHazardReports = async (): Promise<HazardReport[]> => {
   try {

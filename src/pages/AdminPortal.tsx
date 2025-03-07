@@ -111,7 +111,7 @@ const AdminPortal = () => {
   const filteredHazards = hazards.filter(hazard => {
     const matchesSearch = 
       hazard.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      hazard.address?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      hazard.location.address?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       hazard.type.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesStatus = filterStatus === "all" || hazard.status === filterStatus;
