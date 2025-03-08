@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -36,6 +36,7 @@ const formSchema = z.object({
 const Signup = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { signUp, isLoading: authLoading } = useAuth();
+  const navigate = useNavigate();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -53,6 +54,8 @@ const Signup = () => {
     
     try {
       await signUp(values.email, values.password, values.name);
+      // Redirect to login on successful signup
+      navigate("/login");
     } catch (error) {
       console.error("Signup error:", error);
       // Error is handled in the AuthContext

@@ -53,7 +53,7 @@ export const transferTokens = async (recipient: string, amount: string = "250000
 };
 
 export const checkNetworkConnection = async () => {
-  if (typeof window.ethereum === "undefined") {
+  if (typeof window === 'undefined' || typeof window.ethereum === "undefined") {
     return { success: false, message: "MetaMask is not installed" };
   }
 
@@ -93,3 +93,10 @@ export const checkNetworkConnection = async () => {
     return { success: false, message: "Failed to connect to wallet" };
   }
 };
+
+// Add global type declaration
+declare global {
+  interface Window {
+    ethereum: any;
+  }
+}

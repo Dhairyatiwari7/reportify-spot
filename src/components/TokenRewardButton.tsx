@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { transferTokens, checkNetworkConnection } from "@/services/tokenService";
+import { Loader2 } from "lucide-react";
 
 // Amount of tokens to reward (25 tokens)
 const REWARD_AMOUNT = "25000000000000000000"; 
@@ -10,17 +11,15 @@ const REWARD_AMOUNT = "25000000000000000000";
 interface TokenRewardButtonProps {
   onSuccess?: () => void;
   buttonText?: string;
-}
-
-declare global {
-  interface Window {
-    ethereum: any;
-  }
+  className?: string;
+  disabled?: boolean;
 }
 
 const TokenRewardButton: React.FC<TokenRewardButtonProps> = ({ 
   onSuccess, 
-  buttonText = "Submit Report & Earn 25 SafetyCoin" 
+  buttonText = "Submit Report & Earn 25 SafetyCoin",
+  className = "",
+  disabled = false
 }) => {
   const [isTransferring, setIsTransferring] = useState(false);
 
@@ -66,11 +65,12 @@ const TokenRewardButton: React.FC<TokenRewardButtonProps> = ({
     <Button 
       variant="default" 
       onClick={handleClick}
-      disabled={isTransferring}
+      disabled={isTransferring || disabled}
+      className={className}
     >
       {isTransferring ? (
         <>
-          <div className="animate-spin h-4 w-4 border-2 border-t-transparent rounded-full mr-2"></div>
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           Sending Tokens...
         </>
       ) : (

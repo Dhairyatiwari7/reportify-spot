@@ -1,7 +1,6 @@
-
-import { supabase } from "@/lib/supabase";
-import { HazardReport, HazardType, HazardStatus, Location } from "@/types/supabase";
-import { toast } from "sonner";
+import { supabase } from '@/lib/supabase';
+import { HazardReport, HazardStatus, HazardType, Location } from '@/types/supabase';
+import { toast } from 'sonner';
 
 // Transform database row to HazardReport
 const transformHazardRow = (row: any): HazardReport => {
@@ -249,14 +248,18 @@ export const voteHazardReport = async (hazardId: string, userId: string): Promis
         .delete()
         .eq('id', existingVote.id);
 
-      if (deleteError) throw deleteError;
+      if (deleteError) {
+        throw deleteError;
+      }
 
       // Decrement vote count
       const { error: updateError } = await supabase.rpc('decrement_hazard_votes', {
         hazard_id: hazardId
       });
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        throw updateError;
+      }
 
       return false;
     } else {
@@ -268,14 +271,18 @@ export const voteHazardReport = async (hazardId: string, userId: string): Promis
           user_id: userId,
         });
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        throw insertError;
+      }
 
       // Increment vote count
       const { error: updateError } = await supabase.rpc('increment_hazard_votes', {
         hazard_id: hazardId
       });
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        throw updateError;
+      }
 
       return true;
     }
