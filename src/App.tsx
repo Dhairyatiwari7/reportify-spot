@@ -30,8 +30,8 @@ function App() {
   return (
     <ThemeProvider defaultTheme="light" attribute="class">
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <Router>
+        <Router>
+          <AuthProvider>
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
@@ -48,9 +48,9 @@ function App() {
               <Route path="/store" element={<Store />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
-          </Router>
-          <Toaster />
-        </AuthProvider>
+            <Toaster />
+          </AuthProvider>
+        </Router>
       </QueryClientProvider>
     </ThemeProvider>
   );
